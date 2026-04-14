@@ -24,7 +24,22 @@ class TestSyncProviderEnv:
         import src.providers.llm as llm_mod
         llm_mod._dotenv_loaded = True  # pretend already loaded
 
-        clean = {k: v for k, v in os.environ.items() if not k.startswith(("OPENAI_", "LANGCHAIN_", "DEEPSEEK_", "GROQ_", "OLLAMA_", "DASHSCOPE_"))}
+        clean = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(
+                (
+                    "OPENAI_",
+                    "LANGCHAIN_",
+                    "DEEPSEEK_",
+                    "GROQ_",
+                    "OLLAMA_",
+                    "DASHSCOPE_",
+                    "ZAI_",
+                    "zAI_",
+                )
+            )
+        }
         clean.update(env)
         with patch.dict(os.environ, clean, clear=True):
             _sync_provider_env()
@@ -81,6 +96,24 @@ class TestSyncProviderEnv:
             "OPENAI_API_KEY": "sk-fallback",
         })
         assert result["OPENAI_API_KEY"] == "sk-fallback"
+
+    def test_zai_provider(self) -> None:
+        result = self._run_sync({
+            "LANGCHAIN_PROVIDER": "zai",
+            "ZAI_API_KEY": "zai-key-123",
+            "ZAI_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+        })
+        assert result["OPENAI_API_KEY"] == "zai-key-123"
+        assert "api.z.ai" in result["OPENAI_API_BASE"]
+
+    def test_zai_provider_mixed_case_env_compat(self) -> None:
+        result = self._run_sync({
+            "LANGCHAIN_PROVIDER": "zai",
+            "zAI_API_KEY": "zai-key-mixed",
+            "zAI_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+        })
+        assert result["OPENAI_API_KEY"] == "zai-key-mixed"
+        assert "api.z.ai" in result["OPENAI_API_BASE"]
 
     def test_provider_key_fallback_to_openai_key(self) -> None:
         """If provider-specific key is missing, fall back to OPENAI_API_KEY."""

@@ -79,6 +79,7 @@ def _sync_provider_env() -> None:
         "moonshot":   ("MOONSHOT_API_KEY",    "MOONSHOT_BASE_URL"),
         "minimax":    ("MINIMAX_API_KEY",     "MINIMAX_BASE_URL"),
         "mimo":       ("MIMO_API_KEY",        "MIMO_BASE_URL"),
+        "zai":        ("ZAI_API_KEY",         "ZAI_BASE_URL"),
         "ollama":     (None,                  "OLLAMA_BASE_URL"),
     }
 
@@ -87,12 +88,19 @@ def _sync_provider_env() -> None:
 
     # Resolve API key: provider-specific env → OPENAI_API_KEY fallback
     if key_env is not None:
-        api_key = os.getenv(key_env, "") or os.getenv("OPENAI_API_KEY", "")
+        api_key = os.getenv(key_env, "")
+        # Backward compatibility for mixed-case env names seen in some setups.
+        if not api_key and provider == "zai":
+            api_key = os.getenv("zAI_API_KEY", "")
+        api_key = api_key or os.getenv("OPENAI_API_KEY", "")
     else:
         api_key = os.getenv("OPENAI_API_KEY", "") or "ollama"
 
     # Resolve base URL: provider-specific env → OPENAI_BASE_URL fallback
-    base_url = os.getenv(base_env, "") or os.getenv("OPENAI_BASE_URL", "") or os.getenv("OPENAI_API_BASE", "")
+    base_url = os.getenv(base_env, "")
+    if not base_url and provider == "zai":
+        base_url = os.getenv("zAI_BASE_URL", "")
+    base_url = base_url or os.getenv("OPENAI_BASE_URL", "") or os.getenv("OPENAI_API_BASE", "")
 
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
