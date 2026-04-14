@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from src.providers.llm import _extract_balanced_json, _sync_provider_env
+from src.providers.llm import _extract_balanced_json, _load_env_file, _sync_provider_env
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +25,22 @@ class TestSyncProviderEnv:
         import src.providers.llm as llm_mod
         llm_mod._dotenv_loaded = True  # pretend already loaded
 
-        clean = {k: v for k, v in os.environ.items() if not k.startswith(("OPENAI_", "LANGCHAIN_", "DEEPSEEK_", "GROQ_", "OLLAMA_", "DASHSCOPE_"))}
+        clean = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(
+                (
+                    "OPENAI_",
+                    "LANGCHAIN_",
+                    "DEEPSEEK_",
+                    "GROQ_",
+                    "OLLAMA_",
+                    "DASHSCOPE_",
+                    "ZAI_",
+                    "zAI_",
+                )
+            )
+        }
         clean.update(env)
         with patch.dict(os.environ, clean, clear=True):
             _sync_provider_env()
@@ -82,6 +98,24 @@ class TestSyncProviderEnv:
         })
         assert result["OPENAI_API_KEY"] == "sk-fallback"
 
+    def test_zai_provider(self) -> None:
+        result = self._run_sync({
+            "LANGCHAIN_PROVIDER": "zai",
+            "ZAI_API_KEY": "zai-key-123",
+            "ZAI_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+        })
+        assert result["OPENAI_API_KEY"] == "zai-key-123"
+        assert "api.z.ai" in result["OPENAI_API_BASE"]
+
+    def test_zai_provider_mixed_case_env_compat(self) -> None:
+        result = self._run_sync({
+            "LANGCHAIN_PROVIDER": "zai",
+            "zAI_API_KEY": "zai-key-mixed",
+            "zAI_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+        })
+        assert result["OPENAI_API_KEY"] == "zai-key-mixed"
+        assert "api.z.ai" in result["OPENAI_API_BASE"]
+
     def test_provider_key_fallback_to_openai_key(self) -> None:
         """If provider-specific key is missing, fall back to OPENAI_API_KEY."""
         result = self._run_sync({
@@ -133,3 +167,36 @@ class TestExtractBalancedJson:
         text = '{"a": 1} {"b": 2}'
         result = _extract_balanced_json(text)
         assert result == {"a": 1}
+
+
+class TestLoadEnvFile:
+    def test_tolerates_invalid_lines(self, tmp_path: Path) -> None:
+        env_path = tmp_path / ".env"
+        env_path.write_text(
+            "\n".join(
+                [
+                    "OPENAI_API_KEY=sk-abc",
+                    "INVALID_LINE_WITHOUT_EQUALS",
+                    "# comment",
+                    "OPENAI_BASE_URL=https://example.com/v1",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            _load_env_file(env_path)
+            assert os.environ.get("OPENAI_API_KEY") == "sk-abc"
+            assert os.environ.get("OPENAI_BASE_URL") == "https://example.com/v1"
+
+    def test_supports_literal_newline_separator(self, tmp_path: Path) -> None:
+        env_path = tmp_path / ".env"
+        env_path.write_text(
+            "LANGCHAIN_PROVIDER=zai\\nZAI_BASE_URL=https://api.z.ai/api/coding/paas/v4",
+            encoding="utf-8",
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            _load_env_file(env_path)
+            assert os.environ.get("LANGCHAIN_PROVIDER") == "zai"
+            assert os.environ.get("ZAI_BASE_URL") == "https://api.z.ai/api/coding/paas/v4"

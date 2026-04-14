@@ -8,11 +8,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 try:
-    from dotenv import load_dotenv
-except ImportError:
-    load_dotenv = None  # type: ignore
-
-try:
     from langchain_openai import ChatOpenAI
 except ImportError:
     ChatOpenAI = None  # type: ignore
@@ -30,13 +25,23 @@ _dotenv_loaded: bool = False
 
 
 def _load_env_file(path: Path) -> None:
-    """Load a single .env file into os.environ (setdefault, no override)."""
-    if load_dotenv is not None:
-        load_dotenv(dotenv_path=path, override=False)
-    else:
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
+    """Load a single .env file into os.environ (setdefault, no override).
+
+    Parsing is intentionally tolerant:
+    - ignores malformed lines silently,
+    - supports optional ``export KEY=VALUE`` format,
+    - supports accidental literal ``\\n`` separators pasted into one line.
+    """
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        # Some users accidentally paste multiple assignments in one line as
+        # "KEY=...\\n OTHER=...". Split and parse each chunk independently.
+        for fragment in raw.split("\\n"):
+            line = fragment.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):].strip()
+            if "=" not in line:
                 continue
             key, value = line.split("=", 1)
             key = key.strip()
@@ -79,6 +84,7 @@ def _sync_provider_env() -> None:
         "moonshot":   ("MOONSHOT_API_KEY",    "MOONSHOT_BASE_URL"),
         "minimax":    ("MINIMAX_API_KEY",     "MINIMAX_BASE_URL"),
         "mimo":       ("MIMO_API_KEY",        "MIMO_BASE_URL"),
+        "zai":        ("ZAI_API_KEY",         "ZAI_BASE_URL"),
         "ollama":     (None,                  "OLLAMA_BASE_URL"),
     }
 
@@ -87,12 +93,19 @@ def _sync_provider_env() -> None:
 
     # Resolve API key: provider-specific env → OPENAI_API_KEY fallback
     if key_env is not None:
-        api_key = os.getenv(key_env, "") or os.getenv("OPENAI_API_KEY", "")
+        api_key = os.getenv(key_env, "")
+        # Backward compatibility for mixed-case env names seen in some setups.
+        if not api_key and provider == "zai":
+            api_key = os.getenv("zAI_API_KEY", "")
+        api_key = api_key or os.getenv("OPENAI_API_KEY", "")
     else:
         api_key = os.getenv("OPENAI_API_KEY", "") or "ollama"
 
     # Resolve base URL: provider-specific env → OPENAI_BASE_URL fallback
-    base_url = os.getenv(base_env, "") or os.getenv("OPENAI_BASE_URL", "") or os.getenv("OPENAI_API_BASE", "")
+    base_url = os.getenv(base_env, "")
+    if not base_url and provider == "zai":
+        base_url = os.getenv("zAI_BASE_URL", "")
+    base_url = base_url or os.getenv("OPENAI_BASE_URL", "") or os.getenv("OPENAI_API_BASE", "")
 
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
